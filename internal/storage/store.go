@@ -4,14 +4,9 @@ package storage
 import (
 	"sync"
 	"time"
+
+	"github.com/Arush71/redis-server/internal/helpers"
 )
-
-type item struct {
-	value     []byte
-	ExpiresAt *time.Time
-}
-
-type storage map[string]item
 
 type Storage struct {
 	mu      sync.RWMutex
@@ -26,26 +21,73 @@ func InitStorage() *Storage {
 }
 
 func (s *Storage) Set(key string, val []byte, px int64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	var expiresAt *time.Time
-	if px >= 0 {
+	if px > 0 {
 		t := time.Now().Add(time.Duration(px) * time.Millisecond)
 		expiresAt = &t
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.storage[key] = item{
-		value:     val,
-		ExpiresAt: expiresAt,
+		value:     String{value: val},
+		expiresAt: expiresAt,
 	}
 }
 
 func (s *Storage) Get(key string) ([]byte, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	val, ok := s.storage[key]
-	if ok && val.ExpiresAt != nil && time.Now().After(*val.ExpiresAt) {
+	it, ok := s.storage[key]
+	if ok && it.expiresAt != nil && time.Now().After(*it.expiresAt) {
 		delete(s.storage, key)
 		return nil, false
 	}
-	return val.value, ok
+	str, ok := it.value.(String)
+	if !ok {
+		return nil, false
+	}
+	return str.value, ok
+}
+
+func (s *Storage) RPush(key string, value ...[]byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	it, ok := s.storage[key]
+	var arr List
+	if ok {
+		arr, ok = it.value.(List)
+		if !ok {
+			return 0, helpers.ErrWrongType
+		}
+	} else {
+		it = item{
+			expiresAt: nil,
+		}
+	}
+	arr.value = append(arr.value, value...)
+	it.value = arr
+	s.storage[key] = it
+	return len(arr.value), nil
+}
+
+func (s *Storage) LRange(key string, start int64, stop int64) ([][]byte, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	it, ok := s.storage[key]
+	if !ok {
+		return [][]byte{}, nil
+	}
+	list, ok := it.value.(List)
+	if !ok {
+		return nil, helpers.ErrWrongType
+	}
+	lenList := int64(len(list.value))
+	if start >= lenList || start > stop {
+		return [][]byte{}, nil
+	}
+	if stop >= lenList {
+		stop = lenList - 1
+	}
+	// TODO: solve the potential concurrency problem and complete the list function.
+	return list.value[start : stop+1], nil
 }
