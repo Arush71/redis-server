@@ -40,3 +40,18 @@ func writeInteger(value int, connWrite io.Writer) error {
 	buf = append(buf, '\r', '\n')
 	return writeToConn(buf, connWrite)
 }
+
+func writeBulkArray(data [][]byte, connWrite io.Writer) error {
+	buf := make([]byte, 0, 64+len(data)*8)
+	buf = append(buf, '*')
+	buf = append(buf, strconv.Itoa(len(data))...)
+	buf = append(buf, '\r', '\n')
+	for _, v := range data {
+		buf = append(buf, '$')
+		buf = append(buf, strconv.Itoa(len(v))...)
+		buf = append(buf, '\r', '\n')
+		buf = append(buf, v...)
+		buf = append(buf, '\r', '\n')
+	}
+	return writeToConn(buf, connWrite)
+}

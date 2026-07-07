@@ -23,3 +23,14 @@ type item struct {
 }
 
 type storage map[string]item
+
+type listner map[string]chan []byte
+
+func (l *List) popFront() ([]byte, bool) {
+	if len(l.value) == 0 {
+		return nil, false
+	}
+	item := l.value[0]
+	l.value[0], l.value = nil, l.value[1:]
+	return item, true
+}

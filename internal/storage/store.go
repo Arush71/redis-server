@@ -9,14 +9,18 @@ import (
 )
 
 type Storage struct {
-	mu      sync.RWMutex
-	storage storage
+	mu       sync.Mutex
+	storage  storage
+	listners listner
 }
+
+var emptyList = [][]byte{}
 
 func InitStorage() *Storage {
 	return &Storage{
-		storage: make(storage),
-		mu:      sync.RWMutex{},
+		storage:  make(storage),
+		mu:       sync.Mutex{},
+		listners: make(listner),
 	}
 }
 
@@ -46,7 +50,7 @@ func (s *Storage) Get(key string) ([]byte, bool) {
 	if !ok {
 		return nil, false
 	}
-	return str.value, ok
+	return helpers.CopyBytes(str.value), ok
 }
 
 func (s *Storage) RPush(key string, value ...[]byte) (int, error) {
@@ -65,29 +69,144 @@ func (s *Storage) RPush(key string, value ...[]byte) (int, error) {
 		}
 	}
 	arr.value = append(arr.value, value...)
-	it.value = arr
-	s.storage[key] = it
-	return len(arr.value), nil
+	maxLen := len(arr.value)
+	s.handleListAppendLocked(arr, key, it)
+	return maxLen, nil
 }
 
 func (s *Storage) LRange(key string, start int64, stop int64) ([][]byte, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	it, ok := s.storage[key]
 	if !ok {
-		return [][]byte{}, nil
+		return emptyList, nil
 	}
 	list, ok := it.value.(List)
 	if !ok {
 		return nil, helpers.ErrWrongType
 	}
 	lenList := int64(len(list.value))
+	if stop < 0 {
+		stop += lenList
+		if stop < 0 {
+			return emptyList, nil
+		}
+	}
+	if start < 0 {
+		start += lenList
+		if start < 0 {
+			start = 0
+		}
+	}
 	if start >= lenList || start > stop {
-		return [][]byte{}, nil
+		return emptyList, nil
 	}
 	if stop >= lenList {
 		stop = lenList - 1
 	}
-	// TODO: solve the potential concurrency problem and complete the list function.
-	return list.value[start : stop+1], nil
+	return helpers.CopyList(list.value[start : stop+1]), nil
+}
+
+func (s *Storage) LPush(key string, value ...[]byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var arr List
+	it, ok := s.storage[key]
+	if !ok {
+		it = item{}
+	} else {
+		arr, ok = it.value.(List)
+		if !ok {
+			return 0, helpers.ErrWrongType
+		}
+	}
+	newSlice := make([][]byte, len(arr.value)+len(value))
+	for i, v := range value {
+		newSlice[len(value)-1-i] = v
+	}
+	copy(newSlice[len(value):], arr.value)
+	arr.value = newSlice
+	maxLen := len(arr.value)
+	s.handleListAppendLocked(arr, key, it)
+	return maxLen, nil
+}
+
+func (s *Storage) LLEN(key string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	it, ok := s.storage[key]
+	if !ok {
+		return 0, nil
+	}
+	list, ok := it.value.(List)
+	if !ok {
+		return 0, helpers.ErrWrongType
+	}
+	return len(list.value), nil
+}
+
+func (s *Storage) LPOP(key string, count *int64) ([][]byte, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	it, ok := s.storage[key]
+	if !ok {
+		return nil, false, nil
+	}
+	list, ok := it.value.(List)
+	if !ok {
+		return nil, true, helpers.ErrWrongType
+	}
+	if len(list.value) == 0 {
+		delete(s.storage, key)
+		return nil, false, nil
+	}
+	var popCount int64 = 1
+	if count != nil {
+		popCount = min(*count, int64(len(list.value)))
+	}
+
+	// Gonna shallow copy since the these elements would be effectively deleted
+	firstElms := helpers.CopyListShallow(list.value[0:popCount])
+	copy(list.value[0:], list.value[popCount:])
+	newLen := int64(len(list.value)) - popCount
+	for k := newLen; k < int64(len(list.value)); k++ {
+		list.value[k] = nil
+	}
+	list.value = list.value[:newLen]
+
+	if len(list.value) == 0 {
+		delete(s.storage, key)
+	} else {
+		it.value = list
+		s.storage[key] = it
+	}
+	return firstElms, true, nil
+}
+
+func (s *Storage) BLPOP(key string, timeout float64) ([][]byte, error) {
+	s.mu.Lock()
+	it, ok := s.storage[key]
+	if ok {
+		list, ok := it.value.(List)
+		if !ok {
+			s.mu.Unlock()
+			return nil, helpers.ErrWrongType
+		}
+		item, ok := list.popFront()
+		if ok {
+			if len(list.value) == 0 {
+				delete(s.storage, key)
+			} else {
+				it.value = list
+				s.storage[key] = it
+			}
+			s.mu.Unlock()
+			return [][]byte{[]byte(key), item}, nil
+		}
+	}
+	listenCh := make(chan []byte, 1)
+	s.listners[key] = listenCh
+	s.mu.Unlock()
+	item := <-listenCh
+	return [][]byte{[]byte(key), item}, nil
 }

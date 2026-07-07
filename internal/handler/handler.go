@@ -10,6 +10,8 @@ import (
 	"github.com/Arush71/redis-server/internal/storage"
 )
 
+var nullBulkStr = []byte("$-1\r\n")
+
 func HandleReqData(data [][]byte, connWrite io.Writer, storage *storage.Storage) error {
 	command := string(bytes.ToUpper(data[0]))
 	switch command {
@@ -22,7 +24,6 @@ func HandleReqData(data [][]byte, connWrite io.Writer, storage *storage.Storage)
 		if len(data) != 2 {
 			return writeErrorToConn(helpers.ErrWrongArgCount, connWrite)
 		}
-		fmt.Println("the data is", string(data[1]))
 		return writeBulk(data[1], connWrite)
 	case "SET":
 		if len(data) != 3 && len(data) != 5 {
@@ -44,7 +45,7 @@ func HandleReqData(data [][]byte, connWrite io.Writer, storage *storage.Storage)
 		}
 		value, ok := storage.Get(string(data[1]))
 		if !ok {
-			return writeToConn([]byte("$-1\r\n"), connWrite)
+			return writeToConn(nullBulkStr, connWrite)
 		}
 		return writeBulk(value, connWrite)
 	case "RPUSH":
@@ -60,11 +61,72 @@ func HandleReqData(data [][]byte, connWrite io.Writer, storage *storage.Storage)
 		if len(data) != 4 {
 			return writeErrorToConn(helpers.ErrWrongArgCount, connWrite)
 		}
-		list, err := storage.LRange(string(data[1]), data[2], data[3])
+		start, ok := helpers.ParseInt(data[2])
+		stop, ok2 := helpers.ParseInt(data[3])
+		if !ok || !ok2 {
+			return writeErrorToConn(helpers.ErrNotInt, connWrite)
+		}
+		list, err := storage.LRange(string(data[1]), start, stop)
 		if err != nil {
 			return writeErrorToConn(err, connWrite)
 		}
-		fallthrough
+		return writeBulkArray(list, connWrite)
+	case "LPUSH":
+		if len(data) < 3 {
+			return writeErrorToConn(helpers.ErrWrongArgCount, connWrite)
+		}
+		response, err := storage.LPush(string(data[1]), data[2:]...)
+		if err != nil {
+			return writeErrorToConn(err, connWrite)
+		}
+		return writeInteger(response, connWrite)
+
+	case "LLEN":
+		if len(data) != 2 {
+			return writeErrorToConn(helpers.ErrWrongArgCount, connWrite)
+		}
+		response, err := storage.LLEN(string(data[1]))
+		if err != nil {
+			return writeErrorToConn(err, connWrite)
+		}
+		return writeInteger(response, connWrite)
+
+	case "LPOP":
+		if len(data) < 2 || len(data) > 3 {
+			return writeErrorToConn(helpers.ErrWrongArgCount, connWrite)
+		}
+		var count *int64
+		if len(data) == 3 {
+			num, ok := helpers.ParsePositiveInt(data[2])
+			if !ok {
+				return writeErrorToConn(helpers.ErrNotPosInt, connWrite)
+			}
+			count = &num
+		}
+		response, ok, err := storage.LPOP(string(data[1]), count)
+		if err != nil {
+			return writeErrorToConn(err, connWrite)
+		}
+		if !ok {
+			return writeToConn(nullBulkStr, connWrite)
+		}
+		if count != nil {
+			return writeBulkArray(response, connWrite)
+		}
+		return writeBulk(response[0], connWrite)
+	case "BLPOP":
+		if len(data) < 3 {
+			return writeErrorToConn(helpers.ErrWrongArgCount, connWrite)
+		}
+		timeout, err := helpers.ParsePositiveFloat(data[len(data)-1])
+		if err != nil {
+			return writeErrorToConn(err, connWrite)
+		}
+		result, err := storage.BLPOP(string(data[1 : len(data)-1][0]), timeout)
+		if err != nil {
+			return writeErrorToConn(err, connWrite)
+		}
+		return writeBulkArray(result, connWrite)
 	default:
 		return writeToConn(fmt.Appendf(nil, "-Err unknown command '%s'\r\n", command), connWrite)
 	}
