@@ -55,3 +55,9 @@ func writeBulkArray(data [][]byte, connWrite io.Writer) error {
 	}
 	return writeToConn(buf, connWrite)
 }
+
+var nullArr = []byte("*-1\r\n")
+
+func writeNullArr(connWrite io.Writer) error {
+	return writeToConn(nullArr, connWrite)
+}

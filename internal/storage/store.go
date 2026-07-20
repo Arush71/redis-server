@@ -8,19 +8,26 @@ import (
 	"github.com/Arush71/redis-server/internal/helpers"
 )
 
+type listnerManager struct {
+	table listnerTable
+	mu    sync.RWMutex
+}
 type Storage struct {
 	mu       sync.Mutex
 	storage  storage
-	listners listner
+	listners *listnerManager
 }
 
 var emptyList = [][]byte{}
 
 func InitStorage() *Storage {
 	return &Storage{
-		storage:  make(storage),
-		mu:       sync.Mutex{},
-		listners: make(listner),
+		storage: make(storage),
+		mu:      sync.Mutex{},
+		listners: &listnerManager{
+			table: make(listnerTable),
+			mu:    sync.RWMutex{},
+		},
 	}
 }
 
@@ -183,30 +190,46 @@ func (s *Storage) LPOP(key string, count *int64) ([][]byte, bool, error) {
 	return firstElms, true, nil
 }
 
-func (s *Storage) BLPOP(key string, timeout float64) ([][]byte, error) {
+func (s *Storage) BLPOP(timeout float64, keys [][]byte) ([][]byte, error) {
+	keys = helpers.DeduplicateKeys(keys)
 	s.mu.Lock()
-	it, ok := s.storage[key]
-	if ok {
-		list, ok := it.value.(List)
-		if !ok {
-			s.mu.Unlock()
-			return nil, helpers.ErrWrongType
-		}
-		item, ok := list.popFront()
+	for i := range len(keys) {
+		key := string(keys[i])
+		it, ok := s.storage[key]
 		if ok {
-			if len(list.value) == 0 {
-				delete(s.storage, key)
-			} else {
-				it.value = list
-				s.storage[key] = it
+			list, ok := it.value.(List)
+			if !ok {
+				s.mu.Unlock()
+				return nil, helpers.ErrWrongType
 			}
-			s.mu.Unlock()
-			return [][]byte{[]byte(key), item}, nil
+			item, ok := list.popFront()
+			if ok {
+				if len(list.value) == 0 {
+					delete(s.storage, key)
+				} else {
+					it.value = list
+					s.storage[key] = it
+				}
+				s.mu.Unlock()
+				return [][]byte{[]byte(key), item}, nil
+			}
 		}
 	}
-	listenCh := make(chan []byte, 1)
-	s.listners[key] = listenCh
 	s.mu.Unlock()
-	item := <-listenCh
-	return [][]byte{[]byte(key), item}, nil
+	listnerCh := make(listenCh, 1)
+	s.listners.EnqueueListners(listnerCh, keys)
+	defer s.listners.removeKeys(keys, listnerCh)
+	if timeout == 0 {
+		item := <-listnerCh
+		return [][]byte{[]byte(item.key), item.value}, nil
+	}
+	d := time.Duration(float64(time.Second) * timeout)
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case item := <-listnerCh:
+		return [][]byte{[]byte(item.key), item.value}, nil
+	case <-timer.C:
+		return nil, nil
+	}
 }

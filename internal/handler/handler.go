@@ -122,7 +122,10 @@ func HandleReqData(data [][]byte, connWrite io.Writer, storage *storage.Storage)
 		if err != nil {
 			return writeErrorToConn(err, connWrite)
 		}
-		result, err := storage.BLPOP(string(data[1 : len(data)-1][0]), timeout)
+		result, err := storage.BLPOP(timeout, data[1:len(data)-1])
+		if err == nil && result == nil {
+			return writeNullArr(connWrite)
+		}
 		if err != nil {
 			return writeErrorToConn(err, connWrite)
 		}
