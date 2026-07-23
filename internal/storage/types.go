@@ -1,6 +1,12 @@
 package storage
 
-import "time"
+import (
+	"errors"
+	"sync"
+	"time"
+)
+
+var ErrEOF = errors.New("eof while trying to execute the request")
 
 type redisValue interface {
 	Value()
@@ -24,76 +30,93 @@ type item struct {
 
 type storage map[string]item
 
+type listnerManager struct {
+	table listnerTable
+	mu    sync.Mutex
+}
+type Storage struct {
+	mu       sync.Mutex
+	storage  storage
+	listners *listnerManager
+}
+
 type (
 	listenChType struct {
 		key   string
 		value []byte
 	}
-	listenCh     chan listenChType
-	listnerTable map[string][]listenCh
+	listenCh chan listenChType
+	waiter   struct {
+		listenCh listenCh
+		claimed  bool
+	}
+	listnerTable map[string][]*waiter
 )
 
-func (l *listnerManager) EnqueueListners(listnerCh listenCh, keys [][]byte) {
+func (l *listnerManager) EnqueueListners(waiter *waiter, keys [][]byte) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for i := range len(keys) {
 		key := string(keys[i])
-		l.table[key] = append(l.table[key], listnerCh)
+		l.table[key] = append(l.table[key], waiter)
 	}
 }
 
 func (l *listnerManager) TryDequeueListners(key string, list *List) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	listners := l.table[key]
-	if len(listners) == 0 {
+	waiters := l.table[key]
+	if len(waiters) == 0 {
 		return
 	}
-	toLoop := min(len(listners), len(list.value))
-	for i := range toLoop {
-		data, ok := list.popFront()
-		if !ok {
-			return
+	i := 0
+	for ; i < len(waiters); i++ {
+		if !waiters[i].claimed {
+			data, ok := list.popFront()
+			if !ok {
+				break
+			}
+			waiters[i].listenCh <- listenChType{
+				key:   key,
+				value: data,
+			}
+			waiters[i].claimed = true
 		}
-		listners[i] <- listenChType{
-			key:   key,
-			value: data,
-		}
-		listners[i] = nil
+		waiters[i] = nil
 	}
-	listners = listners[toLoop:]
-	if len(listners) == 0 {
+	waiters = waiters[i:]
+	if len(waiters) == 0 {
 		delete(l.table, key)
 		return
 	}
-	l.table[key] = listners
+	l.table[key] = waiters
 }
 
-func (l *listnerManager) removeKeys(keys [][]byte, listnerChToDel listenCh) {
+func (l *listnerManager) removeKeys(keys [][]byte, waiterToDel *waiter) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for i := range len(keys) {
 		key := string(keys[i])
-		listenerChs, ok := l.table[key]
+		waiters, ok := l.table[key]
 		if !ok {
 			continue
 		}
-		for j := range listenerChs {
-			if listenerChs[j] != listnerChToDel {
+		for j := range waiters {
+			if waiters[j] != waiterToDel {
 				continue
 			}
-			if j < len(listenerChs)-1 {
-				copy(listenerChs[j:], listenerChs[j+1:])
+			if j < len(waiters)-1 {
+				copy(waiters[j:], waiters[j+1:])
 			}
-			listenerChs[len(listenerChs)-1] = nil
-			listenerChs = listenerChs[:len(listenerChs)-1]
+			waiters[len(waiters)-1] = nil
+			waiters = waiters[:len(waiters)-1]
 			break
 		}
-		if len(listenerChs) == 0 {
+		if len(waiters) == 0 {
 			delete(l.table, key)
 			continue
 		}
-		l.table[key] = listenerChs
+		l.table[key] = waiters
 	}
 }
 

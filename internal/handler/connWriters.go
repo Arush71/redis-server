@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/Arush71/redis-server/internal/helpers"
+	"github.com/Arush71/redis-server/internal/storage"
 )
 
 func writeToConn(data []byte, connWrite io.Writer) error {
@@ -24,6 +25,9 @@ func writeBulk(data []byte, connWrite io.Writer) error {
 }
 
 func writeErrorToConn(err error, connWrite io.Writer) error {
+	if err == storage.ErrEOF {
+		return err
+	}
 	if err == nil {
 		return nil
 	}

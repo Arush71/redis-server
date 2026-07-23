@@ -3,8 +3,10 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
+	"log/slog"
 
 	"github.com/Arush71/redis-server/internal/helpers"
 	"github.com/Arush71/redis-server/internal/storage"
@@ -12,7 +14,7 @@ import (
 
 var nullBulkStr = []byte("$-1\r\n")
 
-func HandleReqData(data [][]byte, connWrite io.Writer, storage *storage.Storage) error {
+func HandleReqData(data [][]byte, connWrite io.Writer, storage *storage.Storage, logger *slog.Logger, ctx context.Context) error {
 	command := string(bytes.ToUpper(data[0]))
 	switch command {
 	case "PING":
@@ -122,7 +124,7 @@ func HandleReqData(data [][]byte, connWrite io.Writer, storage *storage.Storage)
 		if err != nil {
 			return writeErrorToConn(err, connWrite)
 		}
-		result, err := storage.BLPOP(timeout, data[1:len(data)-1])
+		result, err := storage.BLPOP(ctx, timeout, data[1:len(data)-1], connWrite, logger)
 		if err == nil && result == nil {
 			return writeNullArr(connWrite)
 		}
