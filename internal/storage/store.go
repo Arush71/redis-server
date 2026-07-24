@@ -178,3 +178,17 @@ func (s *Storage) LPOP(key string, count *int64) ([][]byte, bool, error) {
 	}
 	return firstElms, true, nil
 }
+
+func (s *Storage) TYPE(key string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	val, ok := s.storage[key]
+	if !ok {
+		return "none"
+	}
+	if val.expiresAt != nil && time.Now().After(*val.expiresAt) {
+		delete(s.storage, key)
+		return "none"
+	}
+	return val.value.Type()
+}

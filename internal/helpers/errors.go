@@ -19,4 +19,7 @@ var (
 	ErrNotPosInt       = &RespError{msg: "ERR value is out of range, must be positive"}
 	ErrTimeoutNotFloat = &RespError{msg: "ERR timeout is not a float or out of range"}
 	ErrTimeoutNegative = &RespError{msg: "ERR timeout is negative"}
+	ErrStreamIdParse   = &RespError{msg: "ERR Invalid stream ID specified as stream command argument"}
+	ErrStreamIdZero    = &RespError{msg: "ERR The ID specified in XADD must be greater than 0-0"}
+	ErrInvalidIdAppend = &RespError{msg: "ERR The ID specified in XADD is equal or smaller than the target stream top item"}
 )

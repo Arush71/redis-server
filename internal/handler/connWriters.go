@@ -14,6 +14,14 @@ func writeToConn(data []byte, connWrite io.Writer) error {
 	return err
 }
 
+func writeSimpleStr(data string, connWrite io.Writer) error {
+	buf := make([]byte, 0, len(data)+3)
+	buf = append(buf, '+')
+	buf = append(buf, []byte(data)...)
+	buf = append(buf, '\r', '\n')
+	return writeToConn(buf, connWrite)
+}
+
 func writeBulk(data []byte, connWrite io.Writer) error {
 	buf := make([]byte, 0, 32)
 	buf = append(buf, '$')

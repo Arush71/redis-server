@@ -9,7 +9,7 @@ import (
 var ErrEOF = errors.New("eof while trying to execute the request")
 
 type redisValue interface {
-	Value()
+	Type() string
 }
 
 type String struct {
@@ -20,8 +20,33 @@ type List struct {
 	value [][]byte
 }
 
-func (List) Value()   {}
-func (String) Value() {}
+type (
+	streamStorageType map[string][]byte
+	streamID          struct {
+		time uint64
+		seq  uint64
+	}
+	streamEntry struct {
+		id            streamID
+		streamStorage streamStorageType
+	}
+)
+
+type Stream struct {
+	value []streamEntry
+}
+
+func (Stream) Type() string {
+	return "stream"
+}
+
+func (List) Type() string {
+	return "list"
+}
+
+func (String) Type() string {
+	return "string"
+}
 
 type item struct {
 	value     redisValue

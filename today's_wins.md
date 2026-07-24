@@ -11,3 +11,7 @@
 - [x] complete the lrange command prepend element part
 - [x] try to complete the list section
 - [] try to use less ai(once every 30 mins, 2 prompts allowed)
+
+# today's goal 24 jul
+
+- [ ] get started with streams try to complete 3+ sections.

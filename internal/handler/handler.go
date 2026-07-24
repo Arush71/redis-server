@@ -132,6 +132,21 @@ func HandleReqData(data [][]byte, connWrite io.Writer, storage *storage.Storage,
 			return writeErrorToConn(err, connWrite)
 		}
 		return writeBulkArray(result, connWrite)
+	case "TYPE":
+		if len(data) != 2 {
+			return writeErrorToConn(helpers.ErrWrongArgCount, connWrite)
+		}
+		value := storage.TYPE(string(data[1]))
+		return writeSimpleStr(value, connWrite)
+	case "XADD":
+		if len(data) < 5 || len(data)%2 == 0 {
+			return writeErrorToConn(helpers.ErrWrongArgCount, connWrite)
+		}
+		id, err := storage.XADD(string(data[1]), string(data[2]), data[3:])
+		if err != nil {
+			return writeErrorToConn(err, connWrite)
+		}
+		return writeBulk([]byte(id), connWrite)
 	default:
 		return writeToConn(fmt.Appendf(nil, "-Err unknown command '%s'\r\n", command), connWrite)
 	}
