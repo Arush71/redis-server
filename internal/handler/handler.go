@@ -147,6 +147,30 @@ func HandleReqData(data [][]byte, connWrite io.Writer, storage *storage.Storage,
 			return writeErrorToConn(err, connWrite)
 		}
 		return writeBulk([]byte(id), connWrite)
+	case "XRANGE":
+		if len(data) != 4 {
+			return writeErrorToConn(helpers.ErrWrongArgCount, connWrite)
+		}
+		data, err := storage.XRANGE(string(data[1]), string(data[2]), string(data[3]))
+		if err != nil {
+			return writeErrorToConn(err, connWrite)
+		}
+		return writeXrange(connWrite, data)
+	case "XREAD":
+		if len(data) != 4 {
+			return writeErrorToConn(helpers.ErrWrongArgCount, connWrite)
+		}
+		if string(bytes.ToUpper(data[1])) != "STREAMS" {
+			return writeErrorToConn(helpers.ErrSyntax, connWrite)
+		}
+		res, err := storage.XREAD(string(data[2]), string(data[3]))
+		if err != nil {
+			return writeErrorToConn(err, connWrite)
+		}
+		if res == nil {
+			return writeEmptyArr(connWrite)
+		}
+		return w
 	default:
 		return writeToConn(fmt.Appendf(nil, "-Err unknown command '%s'\r\n", command), connWrite)
 	}

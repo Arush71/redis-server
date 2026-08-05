@@ -68,8 +68,101 @@ func writeBulkArray(data [][]byte, connWrite io.Writer) error {
 	return writeToConn(buf, connWrite)
 }
 
-var nullArr = []byte("*-1\r\n")
+var (
+	nullArr  = []byte("*-1\r\n")
+	emptyArr = []byte("*0\r\n")
+)
 
 func writeNullArr(connWrite io.Writer) error {
 	return writeToConn(nullArr, connWrite)
+}
+
+func writeEmptyArr(connWrite io.Writer) error {
+	return writeToConn(emptyArr, connWrite)
+}
+
+func writeXrange(connWrite io.Writer, data []storage.StreamEntry) error {
+	buf := make([]byte, 0, len(data)+24)
+	buf = append(buf, '*')
+	buf = append(buf, strconv.Itoa(len(data))...)
+	buf = append(buf, '\r', '\n')
+	for _, v := range data {
+		buf = append(buf, '*', '2', '\r', '\n')
+		buf = append(buf, '$')
+		idStr := fmt.Sprintf("%d-%d", v.Id.Time, v.Id.Seq)
+		buf = append(buf, strconv.Itoa(len(idStr))...)
+		buf = append(buf, '\r', '\n')
+		buf = append(buf, idStr...)
+		buf = append(buf, '\r', '\n')
+		buf = append(buf, '*')
+		buf = append(buf, strconv.Itoa(len(v.StreamStorage)*2)...)
+		buf = append(buf, '\r', '\n')
+		// loop
+		for _, v2 := range v.StreamStorage {
+			buf = append(buf, '$')
+			buf = append(buf, strconv.Itoa(len(v2.Field))...)
+			buf = append(buf, '\r', '\n')
+			buf = append(buf, v2.Field...)
+			buf = append(buf, '\r', '\n')
+			// value
+			buf = append(buf, '$')
+			buf = append(buf, strconv.Itoa(len(v2.Value))...)
+			buf = append(buf, '\r', '\n')
+			buf = append(buf, v2.Value...)
+			buf = append(buf, '\r', '\n')
+		}
+	}
+	return writeToConn(buf, connWrite)
+}
+
+func writeXread(connWrite io.Writer, data []storage.StreamReadResults) error {
+	buf := make([]byte, 0, len(data)+24)
+	buf = append(buf, '*')
+	buf = append(buf, strconv.Itoa(len(data))...)
+	buf = append(buf, '\r', '\n')
+	for _, v := range data {
+		buf = append(buf, '*', '2', '\r', '\n')
+		// firt element
+		buf = append(buf, '$')
+		buf = append(buf, strconv.Itoa(len(v.StreamKey))...)
+		buf = append(buf, '\r', '\n')
+		buf = append(buf, v.StreamKey...)
+		buf = append(buf, '\r', '\n')
+		// end of first element
+
+		// 2nd element
+		buf = append(buf, '*', '1', '\r', '\n')
+		// end of 2nd element
+
+		// 2nd element's element
+		buf = append(buf, '*', '2', '\r', '\n')
+		// end of 2nd element's element
+
+		// 2 elemetnt's first
+		// TODO: finish xread resp parsing.
+		buf = append(buf, '$')
+		idStr := fmt.Sprintf("%d-%d", v.Id.Time, v.Id.Seq)
+		buf = append(buf, strconv.Itoa(len(idStr))...)
+		buf = append(buf, '\r', '\n')
+		buf = append(buf, idStr...)
+		buf = append(buf, '\r', '\n')
+		buf = append(buf, '*')
+		buf = append(buf, strconv.Itoa(len(v.StreamStorage)*2)...)
+		buf = append(buf, '\r', '\n')
+		// loop
+		for _, v2 := range v.StreamStorage {
+			buf = append(buf, '$')
+			buf = append(buf, strconv.Itoa(len(v2.Field))...)
+			buf = append(buf, '\r', '\n')
+			buf = append(buf, v2.Field...)
+			buf = append(buf, '\r', '\n')
+			// value
+			buf = append(buf, '$')
+			buf = append(buf, strconv.Itoa(len(v2.Value))...)
+			buf = append(buf, '\r', '\n')
+			buf = append(buf, v2.Value...)
+			buf = append(buf, '\r', '\n')
+		}
+	}
+	return writeToConn(buf, connWrite)
 }

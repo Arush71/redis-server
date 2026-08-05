@@ -135,7 +135,7 @@ type StreamReadResults struct {
 	StreamEntries []StreamEntry
 }
 
-func (s *Storage) XREAD(streamKey string, streamID string) ([]StreamReadResults, error) {
+func (s *Storage) XREAD(streamKey string, streamID string) ([]StreamEntry, error) {
 	timeID, seqID, err := helpers.ParseStreamID(streamID)
 	if err != nil {
 		return nil, err
@@ -148,7 +148,7 @@ func (s *Storage) XREAD(streamKey string, streamID string) ([]StreamReadResults,
 	defer s.mu.Unlock()
 	it, ok := s.storage[streamKey]
 	if !ok {
-		return nil, nil
+		return emptyStreamRange, nil
 	}
 	stream, ok := it.value.(Stream)
 	if !ok {
@@ -159,14 +159,10 @@ func (s *Storage) XREAD(streamKey string, streamID string) ([]StreamReadResults,
 		startRange++
 	}
 	if startRange >= len(stream.value) {
-		return nil, nil
+		return emptyStreamRange, nil
 	}
 	ranges := stream.value[startRange:]
-	result := make([]StreamReadResults, 0, 1)
-	result = append(result, StreamReadResults{
-		StreamKey:     streamKey,
-		StreamEntries: ranges,
-	})
+	result := make([]StreamReadResults, 0)
 	// NOTE: It's safe to return the slice without copying, because of it being a append only slice with no mutation to data.
-	return result, nil
+	return ranges, nil
 }

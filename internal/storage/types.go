@@ -4,6 +4,8 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"github.com/Arush71/redis-server/internal/models"
 )
 
 var ErrEOF = errors.New("eof while trying to execute the request")
@@ -21,19 +23,19 @@ type List struct {
 }
 
 type (
-	streamStorageType map[string][]byte
-	streamID          struct {
-		time uint64
-		seq  uint64
+	fieldValue struct {
+		Field string
+		Value []byte
 	}
-	streamEntry struct {
-		id            streamID
-		streamStorage streamStorageType
+	streamStorageType []fieldValue
+	StreamEntry       struct {
+		Id            models.StreamID
+		StreamStorage streamStorageType
 	}
 )
 
 type Stream struct {
-	value []streamEntry
+	value []StreamEntry
 }
 
 func (Stream) Type() string {

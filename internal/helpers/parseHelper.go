@@ -2,8 +2,11 @@
 package helpers
 
 import (
+	"math"
 	"strconv"
 	"strings"
+
+	"github.com/Arush71/redis-server/internal/models"
 )
 
 func ParsePositiveInt(d []byte) (int64, bool) {
@@ -43,6 +46,9 @@ func ParsePositiveFloat(d []byte) (float64, error) {
 }
 
 func ParseStreamID(d string) (*uint64, *uint64, error) {
+	if d == "*" {
+		return nil, nil, nil
+	}
 	before, after, found := strings.Cut(d, "-")
 	if !found {
 		return nil, nil, ErrStreamIdParse
@@ -62,4 +68,56 @@ func ParseStreamID(d string) (*uint64, *uint64, error) {
 		return nil, nil, ErrStreamIdZero
 	}
 	return &v1, &v2, nil
+}
+
+func ParseStreamIDsRange(start string, end string) (*models.StreamID, *models.StreamID, error) {
+	// start parse
+	newStart := &models.StreamID{}
+	if start == "-" {
+		newStart.Time = 0
+		newStart.Seq = 0
+	} else {
+		before, after, found := strings.Cut(start, "-")
+		if !found {
+			before = start
+			newStart.Seq = 0
+		} else {
+			seq, err := strconv.ParseUint(after, 10, 64)
+			if err != nil {
+				return nil, nil, ErrStreamIdParse
+			}
+			newStart.Seq = seq
+		}
+		time, err := strconv.ParseUint(before, 10, 64)
+		if err != nil {
+			return nil, nil, ErrStreamIdParse
+		}
+		newStart.Time = time
+	}
+
+	// end parse
+	newEnd := &models.StreamID{}
+	if end == "+" {
+		newEnd.Time = math.MaxUint64
+		newEnd.Seq = math.MaxUint64
+	} else {
+		before, after, found := strings.Cut(end, "-")
+		if !found {
+			before = end
+			newEnd.Seq = math.MaxUint64
+		} else {
+			seq, err := strconv.ParseUint(after, 10, 64)
+			if err != nil {
+				return nil, nil, ErrStreamIdParse
+			}
+			newEnd.Seq = seq
+		}
+		time, err := strconv.ParseUint(before, 10, 64)
+		if err != nil {
+			return nil, nil, ErrStreamIdParse
+		}
+		newEnd.Time = time
+	}
+
+	return newStart, newEnd, nil
 }
